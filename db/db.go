@@ -19,7 +19,7 @@ func InitDB() *sql.DB {
 	fileTable := `
 	CREATE TABLE IF NOT EXISTS files(
 	  id INTEGER PRIMARY KEY AUTOINCREMENT,
-	  user_id INTEGER NOT NULL,
+	  uuid TEXT NOT NULL UNIQUE
 	  filename TEXT NOT NULL,
 	  file_type TEXT NOT NULL,
 	  upload_time DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -27,37 +27,12 @@ func InitDB() *sql.DB {
 	);
 	`
 
-	userTable := `
-	CREATE TABLE IF NOT EXISTS users(
-	  id INTEGER PRIMARY KEY AUTOINCREMENT,
-	  username TEXT NOT NULL,
-	  email TEXT UNIQUE NOT NULL,
-	  password_hash TEXT NOT NULL,
-	  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-	);`
-
-	sessionTable := `
-	CREATE TABLE IF NOT EXISTS sessions(
-	  id INTEGER PRIMARY KEY AUTOINCREMENT,
-	  user_id INTEGER NOT NULL,
-	  token TEXT NOT NULL,
-	  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	  expires_at DATETIME NOT NULL
-	  FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-	  );`
 
 	_, err = DB.Exec(fileTable)
 	if err != nil {
 		log.Fatal("failed to create files table: ", err)
 	}
-	_, err = DB.Exec(userTable)
-	if err != nil {
-		log.Fatal("failed to create user table: ", err)
-	}
-	_, err = DB.Exec(sessionTable)
-	if err != nil {
-		log.Fatal("failed to create session table: ", err)
-	}
+	
 	log.Println("database initialized and files table done")
 	return DB
 }

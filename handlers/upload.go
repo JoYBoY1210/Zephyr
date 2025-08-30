@@ -4,21 +4,20 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
+	"strings"
 
-	"github.com/JoYBoY1210/zephyr/utils"
+	"github.com/google/uuid"
 )
 
-func UploadHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+func UploadHandler(w http.ResponseWriter, r *http.Request, db *sql.DB,storagePath,host string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	err := r.ParseMultipartForm(10 << 20)
+	err := r.ParseMultipartForm(50 << 20)
 	if err != nil {
 		http.Error(w, "Could not parse form", http.StatusBadRequest)
 		return
@@ -30,12 +29,17 @@ func UploadHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	}
 	defer file.Close()
 
-	os.MkdirAll("uploads", os.ModePerm)
+	filetype:=detectFileType(header.Filename,header.Header.Get("Content-Type"))
+	dir:=filepath.Join(storagePath,filetype)
+	os.Mkdir(dir,os.ModePerm)
+	u:=uuid.New().String()
+	ext:=filepath.Ext(header.Filename)
+	filename:=fmt.Sprintf("%s%s",u,ext)
+	fullpath:=filepath.Join(dir,filename)
 
-	filename := fmt.Sprintf("%d_%s", time.Now().Unix(), header.Filename)
-	filepath := filepath.Join("uploads", filename)
+	
 
-	dst, err := os.Create(filepath)
+	dst, err := os.Create(fullpath)
 	if err != nil {
 		http.Error(w, "couldnot save the file", http.StatusInternalServerError)
 		return
@@ -43,35 +47,30 @@ func UploadHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	defer dst.Close()
 	io.Copy(dst, file)
 
-	filetype := detectFiletype(header)
-
-	res, err := db.Exec(
-		"INSERT INTO files (user_id, filename, file_type, original_path) VALUES (?, ?, ?, ?)",
-		1,
-		header.Filename,
-		filetype,
-		filepath,
+	_, err = db.Exec(
+			"INSERT INTO files (uuid, filename, file_type, original_path) VALUES (?, ?, ?, ?)",
+			u, header.Filename, filetype, fmt.Sprintf("%s/%s", filetype, filename),
 	)
 	if err != nil {
 		http.Error(w, "Database insert failed", http.StatusInternalServerError)
 		return
 	}
 
-	fileId, _ := res.LastInsertId()
 
-	urlPath := fmt.Sprintf("/files/%d", fileId)
-	signature := utils.GenerateHMAC(urlPath)
-	signedURL := fmt.Sprintf("%s?sign=%s", urlPath, signature)
+	urlPath := fmt.Sprintf("%s/f/%s", strings.TrimRight(host, "/"), u)
+	
 	w.WriteHeader(http.StatusOK)
 
-	w.Write([]byte(signedURL))
+	w.Write([]byte(urlPath))
 
 }
 
-func detectFiletype(header *multipart.FileHeader) string {
-	if header.Header.Get("Content-Type") != "" {
-		return header.Header.Get("Content-Type")
+func detectFileType(filename, contentType string) string {
+	lc := strings.ToLower(filename)
+	if strings.HasPrefix(contentType, "image/") || strings.HasSuffix(lc, ".png") || strings.HasSuffix(lc, ".jpg") || strings.HasSuffix(lc, ".jpeg") || strings.HasSuffix(lc, ".gif") {
+		return "image"
+	} else if strings.HasPrefix(contentType, "video/") || strings.HasSuffix(lc, ".mp4") || strings.HasSuffix(lc, ".mov") || strings.HasSuffix(lc, ".avi") {
+		return "video"
 	}
-
-	return "application/octet-stream"
+	return "other"
 }
